@@ -8,7 +8,7 @@ Showcase Learn & Launch is a full-featured e-learning platform that includes:
 - **Student Portal**: Browse and enroll in courses, read blog posts, view instructor portfolio
 - **Instructor Dashboard**: Create and manage courses with an advanced curriculum builder
 - **Admin Panel**: Manage published courses, track student data, monitor purchases
-- **Database Integration**: Supabase PostgreSQL backend for persistent course storage
+- **Database Integration**: MySQL backend for persistent course storage
 
 ## ✨ Completed Features
 
@@ -99,31 +99,90 @@ A professional, Udemy-inspired multi-step course creation interface:
 - **Icons**: lucide-react
 - **Routing**: react-router-dom
 - **State Management**: React Context API + localStorage
-- **Backend**: Supabase (PostgreSQL)
+- **Backend**: Node.js/Express with MySQL
 - **Development**: Node.js + npm
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Node.js v16+ and npm installed ([install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating))
+- Node.js v18+ and npm installed ([install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating))
+- MySQL v8.0+ installed and running ([install MySQL](https://dev.mysql.com/downloads/mysql/))
 
-### Installation
+### Quick Setup
+
+Run the automated setup script:
 
 ```sh
-# Clone the repository
-git clone https://github.com/IsGameliel/showcase-learn-launch.git
+# Make script executable (if not already)
+chmod +x setup.sh
 
-# Navigate to project directory
-cd showcase-learn-launch
+# Run setup
+./setup.sh
+```
 
-# Install dependencies
+This will:
+- Install all dependencies
+- Create the MySQL database
+- Run database migrations
+- Set up an admin user
+
+### Manual Setup
+
+If you prefer manual setup:
+
+1. **Backend Setup**:
+```sh
+cd backend
 npm install
+# Update .env with your MySQL credentials
+npm run db:create
+npm run db:migrate
+```
 
-# Start development server
+2. **Frontend Setup**:
+```sh
+# Back to root directory
+cd ..
+npm install
+```
+
+3. **Start Development Servers**:
+```sh
+# Terminal 1: Backend
+cd backend && npm run dev
+
+# Terminal 2: Frontend
 npm run dev
 ```
 
-The app will open at `http://localhost:8086` with hot module reloading.
+The app will open at `http://localhost:8080` with the backend API at `http://localhost:3001`.
+
+### Default Admin Credentials
+- Email: `admin@codewitheugene.com`
+- Password: `admin123`
+
+## 📁 Project Structure
+
+```
+├── backend/              # Node.js/Express API server
+│   ├── src/
+│   │   ├── config/       # Database configuration
+│   │   ├── controllers/  # Route controllers
+│   │   ├── middleware/   # Authentication middleware
+│   │   ├── models/       # TypeScript interfaces
+│   │   ├── routes/       # API routes
+│   │   └── scripts/      # Database setup scripts
+│   └── package.json
+├── src/                  # React frontend
+│   ├── components/       # Reusable React components
+│   ├── pages/           # Page components
+│   ├── contexts/        # React Context providers
+│   ├── data/            # Static data fallbacks
+│   ├── lib/             # API client and utilities
+│   └── ...
+├── setup.sh             # Automated setup script
+└── package.json
+```
 
 ## 📁 Project Structure
 
@@ -157,7 +216,7 @@ src/
 │   └── CurriculumContext.tsx
 ├── data/                # Static data (blogs, courses, projects)
 ├── hooks/               # Custom React hooks
-├── integrations/        # External service integrations (Supabase)
+├── lib/                 # API client and utility functions
 ├── lib/                 # Utility functions
 ├── App.tsx              # Root component with routing
 └── main.tsx             # Application entry point

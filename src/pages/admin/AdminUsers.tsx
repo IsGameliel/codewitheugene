@@ -4,8 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Search, Mail, Ban, UserCheck, Trash2, Edit2, X, Download } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { apiClient } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 interface UserProfile {
   id: string;
@@ -33,6 +35,8 @@ const AdminUsers = () => {
   const [editForm, setEditForm] = useState({ full_name: "", bio: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  const { refreshUser } = useAuth();
+  const navigate = useNavigate();
 
   // Fetch users on mount
   useEffect(() => {
@@ -42,36 +46,28 @@ const AdminUsers = () => {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      
-      // Fetch profiles with purchase and course counts
-      const { data: profiles, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .order("created_at", { ascending: false });
 
-      if (error) throw error;
+      const response = await apiClient.getAllUsers();
+      const fetchedUsers = (response.users || []).map((user: any) => ({
+        id: user.id,
+        user_id: user.id,
+        full_name: user.full_name || user.email,
+        email: user.email,
+        role: user.role,
+        bio: null,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
+        courses_count: 0,
+        status: "active",
+      }));
 
-      // Enrich with courses count and status
-      const enrichedUsers = await Promise.all(
-        (profiles || []).map(async (profile) => {
-          const { count } = await supabase
-            .from("purchases")
-            .select("*", { count: "exact", head: true })
-            .eq("user_id", profile.user_id);
-
-          // Determine status based on last activity (for now, all are active if they exist)
-          const status = profile.created_at ? "active" : "inactive";
-
-          return {
-            ...profile,
-            courses_count: count || 0,
-            status: status as "active" | "inactive",
-          };
-        })
-      );
-
-      setUsers(enrichedUsers);
+      setUsers(fetchedUsers);
     } catch (error: any) {
+      if (error.message === "Admin access required") {
+        await refreshUser();
+        navigate("/admin", { replace: true });
+      }
+
       toast({
         title: "Error",
         description: error.message || "Failed to fetch users",
@@ -102,20 +98,13 @@ const AdminUsers = () => {
 
     try {
       setIsSubmitting(true);
-      const { error } = await supabase
-        .from("profiles")
-        .update({
-          full_name: editForm.full_name || null,
-          bio: editForm.bio || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", selectedUser.id);
 
-      if (error) throw error;
+      const newRole = selectedUser.role === 'admin' ? 'user' : 'admin';
+      await apiClient.updateUserRole(selectedUser.id, newRole);
 
       toast({
         title: "Success",
-        description: "User updated successfully",
+        description: `User role updated to ${newRole}`,
       });
 
       setIsEditModalOpen(false);
@@ -137,9 +126,7 @@ const AdminUsers = () => {
     }
 
     try {
-      const { error } = await supabase.from("profiles").delete().eq("id", userId);
-
-      if (error) throw error;
+      await apiClient.deleteUser(userId);
 
       toast({
         title: "Success",

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { BlogCard } from "@/components/blog/BlogCard";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/integrations/supabase/client";
+import { apiClient } from "@/lib/api";
 import type { BlogPost } from "@/data/blogs";
 
 const PLACEHOLDER_IMAGE =
@@ -22,79 +22,24 @@ const Blog = () => {
     try {
       setLoading(true);
 
-      const { data, error } = await supabase
-        .from("blog_posts")
-        .select("*")
-        .eq("is_published", true)
-        .order("published_at", { ascending: false });
+      const response = await apiClient.getBlogPosts();
 
-      if (error) throw error;
-
-      // Map DB posts to BlogPost interface and normalize image URL
-      const transformed: BlogPost[] = await Promise.all(
-        (data || []).map(async (dbPost: any) => {
-          let imageUrl: string | undefined = dbPost.cover_image || undefined;
-
-          // If cover_image exists but is not a URL (e.g. stored path), try to get public URL
-          if (imageUrl && !/^https?:\/\//i.test(imageUrl) && !imageUrl.startsWith("data:")) {
-            try {
-              const { data: urlData } = supabase.storage.from("blog-images").getPublicUrl(imageUrl);
-              if (urlData?.publicUrl) imageUrl = urlData.publicUrl;
-            } catch (e) {
-              // ignore and fallback to placeholder below
-            }
-          }
-
-          // final fallback
-          if (!imageUrl) imageUrl = PLACEHOLDER_IMAGE;
-
-          // Use first category as the display category and also build categories array
-          const rawCategory = dbPost.category || "General";
-          const categoriesArr = String(rawCategory)
-            .toString()
-            .split(",")
-            .map((c: string) => c.trim())
-            .filter(Boolean);
-          const primaryCategory = categoriesArr[0] || "General";
-
-          return {
-            id: dbPost.id,
-            title: dbPost.title,
-            excerpt: dbPost.excerpt || (dbPost.content ? String(dbPost.content).slice(0, 150) : ""),
-            content: dbPost.content || "",
-            image: imageUrl,
-            author: dbPost.author || "Admin",
-            authorImage: dbPost.author_image || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&auto=format&fit=crop",
-            date: dbPost.published_at || dbPost.created_at,
-            readTime: dbPost.read_time || "5 min read",
-            category: primaryCategory,
-            categories: categoriesArr,
-            tags: dbPost.tags || [],
-            featured: false,
-          } as BlogPost;
-        })
-      );
-
-      // mark first as featured (optional)
-      if (transformed.length > 0) transformed[0].featured = true;
+      // Map API posts to BlogPost interface
+      const transformed: BlogPost[] = (response.posts || []).map((dbPost: any) => ({
+        id: dbPost.id,
+        title: dbPost.title,
+        excerpt: dbPost.excerpt,
+        content: dbPost.content,
+        coverImage: dbPost.cover_image || PLACEHOLDER_IMAGE,
+        publishedAt: dbPost.published_at,
+        author: dbPost.author_name || 'Admin',
+        tags: [], // TODO: Add tags support
+        readTime: Math.ceil(dbPost.content.length / 200), // Rough estimate
+      }));
 
       setPosts(transformed);
-
-      // Build unique categories from the `categories` array on each post (if present)
-      const categorySet = new Set<string>();
-      transformed.forEach((p) => {
-        const cats = (p as any).categories;
-        if (Array.isArray(cats) && cats.length > 0) {
-          cats.forEach((c: string) => c && categorySet.add(c));
-        } else if ((p as any).category) {
-          categorySet.add((p as any).category);
-        }
-      });
-
-      setCategories(["All", ...Array.from(categorySet).sort((a, b) => a.localeCompare(b))]);
+      setCategories(["All"]);
     } catch (err) {
-      // keep previous static fallback behavior if fetch fails
-      // eslint-disable-next-line no-console
       console.error("Failed to load posts:", err);
       setPosts([]);
       setCategories(["All"]);

@@ -5,7 +5,7 @@ import PricingPublish from "@/components/admin/PricingPublish";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useCourseContext } from "@/contexts/CourseContext";
-import { supabase } from "@/integrations/supabase/client";
+import { apiClient } from "@/lib/api";
 
 const steps = [
   "Basics",
@@ -61,72 +61,50 @@ const CourseUploadDashboard: React.FC = () => {
       toast({ title: "Error", description: "Please enter a course title" });
       return;
     }
-    // Attempt to save to Supabase
+
     try {
       const payload = {
         title: formData.title,
-        description: formData.description || null,
-        long_description: formData.description || null,
-        category: formData.category || null,
-        level: formData.level || null,
-        price: formData.price || 0,
-        duration: totalDuration || null,
-        lessons_count: lectureCount || 0,
-        thumbnail_url: formData.thumbnail || null,
-        is_published: true,
+        subtitle: formData.subtitle,
+        description: formData.description,
+        category: formData.category,
+        language: formData.language,
+        level: formData.level,
+        price: formData.price,
+        thumbnail: formData.thumbnail,
+        duration: totalDuration,
+        lessons: lectureCount,
+        learningObjectives: formData.objectives,
+        requirements: formData.requirements,
+        totalDuration: totalDuration,
+        isPublished: true,
       };
 
-      const { data, error } = await supabase.from("courses").insert(payload).select().single();
+      const created = await apiClient.createCourse(payload);
 
-      if (error || !data) {
-        console.error("Supabase insert error:", error);
-        toast({ title: "Publish failed", description: "Could not save to database. Saved locally instead." });
-        // fallback to local-only publish
-        const fallback = {
-          id: Math.random().toString(36).slice(2, 9),
-          title: formData.title,
-          subtitle: formData.subtitle,
-          description: formData.description,
-          category: formData.category,
-          language: formData.language,
-          level: formData.level,
-          price: formData.price,
-          thumbnail: formData.thumbnail,
-          duration: totalDuration,
-          lessons: lectureCount,
-          learningObjectives: formData.objectives,
-          requirements: formData.requirements,
-          totalDuration: totalDuration,
-          publishedAt: new Date().toLocaleString(),
-          status: "published" as const,
-        };
+      const dbRow = created.course;
+      const published = {
+        id: dbRow.id,
+        title: dbRow.title,
+        subtitle: dbRow.subtitle || formData.subtitle,
+        description: dbRow.description || formData.description,
+        category: dbRow.category || formData.category,
+        language: dbRow.language || formData.language,
+        level: dbRow.level || formData.level,
+        price: dbRow.price || formData.price,
+        thumbnail: dbRow.thumbnail || formData.thumbnail,
+        duration: dbRow.duration || totalDuration,
+        lessons: dbRow.lessons || lectureCount,
+        learningObjectives: formData.objectives,
+        requirements: formData.requirements,
+        totalDuration: dbRow.total_duration || totalDuration,
+        publishedAt: dbRow.created_at || new Date().toLocaleString(),
+        status: dbRow.is_published ? "published" : "draft",
+      } as any;
 
-        addPublishedCourse(fallback);
-      } else {
-        // Map DB row to PublishedCourse shape
-        const dbRow: any = data;
-        const published = {
-          id: dbRow.id,
-          title: dbRow.title,
-          subtitle: formData.subtitle,
-          description: dbRow.description ?? formData.description,
-          category: dbRow.category ?? formData.category,
-          language: formData.language,
-          level: (dbRow.level as any) ?? formData.level,
-          price: dbRow.price ?? formData.price,
-          thumbnail: dbRow.thumbnail_url ?? undefined,
-          duration: dbRow.duration ?? totalDuration,
-          lessons: dbRow.lessons_count ?? lectureCount,
-          learningObjectives: formData.objectives,
-          requirements: formData.requirements,
-          totalDuration: dbRow.duration ?? totalDuration,
-          publishedAt: dbRow.created_at ?? new Date().toLocaleString(),
-          status: dbRow.is_published ? "published" : "draft",
-        } as any;
+      addPublishedCourse(published);
+      toast({ title: "Course Published!", description: "Saved to database and published." });
 
-        addPublishedCourse(published);
-        toast({ title: "Course Published!", description: "Saved to database and published." });
-      }
 
       // Reset form
       setFormData({

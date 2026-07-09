@@ -4,8 +4,8 @@ import { Layout } from "@/components/layout/Layout";
 import { Badge } from "@/components/ui/badge";
 import { blogPosts } from "@/data/blogs";
 import type { BlogPost as BlogPostType } from "@/data/blogs";
-import { supabase } from "@/integrations/supabase/client";
-import { Calendar, Clock, ArrowLeft, User, Share2, Twitter, Linkedin, Facebook, Heart, Copy } from "lucide-react";
+import { apiClient } from "@/lib/api";
+import { Calendar, Clock, ArrowLeft, Share2, Twitter, Linkedin, Facebook, Heart, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const BlogPost = () => {
@@ -16,64 +16,46 @@ const BlogPost = () => {
   useEffect(() => {
     const fetchPost = async () => {
       setLoading(true);
+
       try {
         if (id) {
-          // try by id
-          let { data, error } = await supabase.from("blog_posts").select("*").eq("id", id).single();
-          if (error || !data) {
-            // try by slug
-            const bySlug = await supabase.from("blog_posts").select("*").eq("slug", id).single();
-            data = bySlug.data;
-          }
+          const response = await apiClient.getBlogPost(id);
 
-          if (data) {
-            const d: any = data;
-            // normalize image
-            let imageUrl: string | undefined = d.cover_image || undefined;
-            if (imageUrl && !/^https?:\/\//i.test(imageUrl) && !imageUrl.startsWith("data:")) {
-              try {
-                const { data: urlData } = supabase.storage.from("blog-images").getPublicUrl(imageUrl);
-                if (urlData?.publicUrl) imageUrl = urlData.publicUrl;
-              } catch (e) {
-                // ignore
-              }
-            }
-            if (!imageUrl) imageUrl = "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=800&auto=format&fit=crop";
-
-            const rawCategory = d.category || "General";
-            const categoriesArr = String(rawCategory).split(",").map((c: string) => c.trim()).filter(Boolean);
+          if (response.post) {
+            const d = response.post;
 
             const mapped: BlogPostType = {
               id: d.id,
               title: d.title,
-              excerpt: d.excerpt || (d.content ? String(d.content).slice(0, 150) : ""),
+              excerpt: d.excerpt || "",
               content: d.content || "",
-              image: imageUrl,
-              author: d.author || "Admin",
-              authorImage: d.author_image || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&auto=format&fit=crop",
-              date: d.published_at || d.created_at,
+              image:
+                d.cover_image ||
+                "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=800&auto=format&fit=crop",
+              author: d.author_name || "Admin",
+              authorImage:
+                d.author_image ||
+                "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&auto=format&fit=crop",
+              date: d.published_at || d.created_at || new Date().toISOString(),
               readTime: d.read_time || "5 min read",
-              category: categoriesArr[0] || "General",
-              categories: categoriesArr,
+              category: d.category || "General",
+              categories: d.categories || [d.category || "General"],
               tags: d.tags || [],
               likes: d.likes || 0,
-              featured: false,
+              featured: d.featured || false,
             };
 
             setPost(mapped);
-            setLoading(false);
             return;
           }
         }
 
-        // fallback to static
         const staticPost = blogPosts.find((p) => p.id === id || p.id === String(id));
-        if (staticPost) setPost(staticPost);
-        else setPost(null);
-      } catch (e) {
+        setPost(staticPost || null);
+      } catch (error) {
+        console.error("Failed to fetch blog post:", error);
         const staticPost = blogPosts.find((p) => p.id === id || p.id === String(id));
-        if (staticPost) setPost(staticPost);
-        else setPost(null);
+        setPost(staticPost || null);
       } finally {
         setLoading(false);
       }
@@ -82,20 +64,22 @@ const BlogPost = () => {
     fetchPost();
   }, [id]);
 
-  const formattedDate = post ? new Date(post.date).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  }) : "";
+  const formattedDate = post
+    ? new Date(post.date).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : "";
 
-  const relatedPosts = post ? blogPosts.filter((p) => p.id !== post.id && p.category === post.category).slice(0, 2) : [];
+  const relatedPosts = post
+    ? blogPosts.filter((p) => p.id !== post.id && p.category === post.category).slice(0, 2)
+    : [];
 
-  // Reactions state (localStorage-backed for now)
   const [liked, setLiked] = useState<boolean>(false);
   const [likesCount, setLikesCount] = useState<number>(0);
   const [copied, setCopied] = useState(false);
 
-  // initialize reactions when post loads
   useEffect(() => {
     if (!post) return;
     try {
@@ -135,7 +119,10 @@ const BlogPost = () => {
     }
   };
 
-  const postUrl = typeof window !== "undefined" && post ? `${window.location.origin}/blog/${post.id}` : `/blog/${id}`;
+  const postUrl =
+    typeof window !== "undefined" && post
+      ? `${window.location.origin}/blog/${post.id}`
+      : `/blog/${id}`;
 
   const handleNativeShare = async () => {
     if (!post) return;
@@ -146,11 +133,10 @@ const BlogPost = () => {
           text: post.excerpt,
           url: postUrl,
         });
-      } catch (e) {
+      } catch {
         // user cancelled or failed
       }
     } else {
-      // fallback to copy
       handleCopyLink();
     }
   };
@@ -161,7 +147,7 @@ const BlogPost = () => {
       await navigator.clipboard.writeText(postUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
+    } catch {
       // ignore
     }
   };
@@ -199,7 +185,6 @@ const BlogPost = () => {
 
   return (
     <Layout>
-      {/* Hero */}
       <section className="pt-32 pb-8 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-hero" />
         <div className="absolute top-1/4 -right-1/4 w-1/2 h-1/2 bg-primary/10 rounded-full blur-[120px]" />
@@ -244,16 +229,11 @@ const BlogPost = () => {
         </div>
       </section>
 
-      {/* Featured Image */}
       <section className="pb-12">
         <div className="container-custom">
           <div className="max-w-4xl mx-auto">
             <div className="aspect-video rounded-2xl overflow-hidden glass animate-scale-in">
-              <img
-                src={post.image}
-                alt={post.title}
-                className="w-full h-full object-cover"
-              />
+              <img src={post.image} alt={post.title} className="w-full h-full object-cover" />
             </div>
           </div>
         </div>
@@ -264,18 +244,20 @@ const BlogPost = () => {
         <div className="container-custom">
           <div className="max-w-3xl mx-auto">
             <article className="prose prose-invert prose-lg max-w-none">
-              <p className="text-xl text-muted-foreground leading-relaxed mb-8">
-                {post.excerpt}
-              </p>
+              <p className="text-xl text-muted-foreground leading-relaxed mb-8">{post.excerpt}</p>
 
               <h2 className="text-2xl font-display font-bold text-foreground mt-12 mb-4">Introduction</h2>
               <p className="text-muted-foreground leading-relaxed mb-6">
-                Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+                Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut
+                labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris
+                nisi ut aliquip ex ea commodo consequat.
               </p>
 
               <h2 className="text-2xl font-display font-bold text-foreground mt-12 mb-4">Key Concepts</h2>
               <p className="text-muted-foreground leading-relaxed mb-6">
-                Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+                Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla
+                pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt
+                mollit anim id est laborum.
               </p>
 
               <div className="p-6 rounded-xl bg-primary/10 border border-primary/20 my-8">
@@ -286,11 +268,12 @@ const BlogPost = () => {
 
               <h2 className="text-2xl font-display font-bold text-foreground mt-12 mb-4">Conclusion</h2>
               <p className="text-muted-foreground leading-relaxed mb-6">
-                Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.
+                Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium,
+                totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae
+                dicta sunt explicabo.
               </p>
             </article>
 
-            {/* Tags */}
             <div className="flex flex-wrap gap-2 mt-12 pt-8 border-t border-border">
               {post.tags.map((tag) => (
                 <Badge key={tag} variant="secondary">
@@ -299,13 +282,10 @@ const BlogPost = () => {
               ))}
             </div>
 
-            {/* Reactions: Like + Share */}
             <div className="flex items-center justify-between mt-8 pt-8 border-t border-border">
               <div className="flex items-center gap-4">
                 <button
-                  onClick={() => {
-                    /* placeholder, handled below */
-                  }}
+                  onClick={handleNativeShare}
                   className="inline-flex items-center gap-2 text-muted-foreground"
                 >
                   <Share2 className="w-5 h-5" />
@@ -314,51 +294,64 @@ const BlogPost = () => {
               </div>
 
               <div className="flex items-center gap-3">
-                  <button
-                    onClick={toggleLike}
-                    aria-pressed={liked}
-                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                      liked ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:bg-secondary/80 hover:text-primary"
-                    }`}
-                  >
-                    <Heart className="w-4 h-4" />
-                    <span className="text-sm">{likesCount}</span>
-                  </button>
-                  <button
-                    onClick={() => openShareWindow(`https://twitter.com/intent/tweet?text=${encodeURIComponent(post.title)}&url=${encodeURIComponent(postUrl)}`)}
-                    title="Share on Twitter"
-                    className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-secondary/80 transition-colors"
-                  >
-                    <Twitter className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={() => openShareWindow(`https://www.linkedin.com/shareArticle?mini=true&url=${encodeURIComponent(postUrl)}&title=${encodeURIComponent(post.title)}`)}
-                    title="Share on LinkedIn"
-                    className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-secondary/80 transition-colors"
-                  >
-                    <Linkedin className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={() => openShareWindow(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(postUrl)}`)}
-                    title="Share on Facebook"
-                    className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-secondary/80 transition-colors"
-                  >
-                    <Facebook className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={handleCopyLink}
-                    title={copied ? "Link copied" : "Copy link"}
-                    className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-secondary/80 transition-colors"
-                  >
-                    <Copy className="w-5 h-5" />
-                  </button>
+                <button
+                  onClick={toggleLike}
+                  aria-pressed={liked}
+                  className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+                    liked
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-muted-foreground hover:bg-secondary/80 hover:text-primary"
+                  }`}
+                >
+                  <Heart className="w-4 h-4" />
+                  <span className="text-sm">{likesCount}</span>
+                </button>
+                <button
+                  onClick={() =>
+                    openShareWindow(
+                      `https://twitter.com/intent/tweet?text=${encodeURIComponent(post.title)}&url=${encodeURIComponent(postUrl)}`
+                    )
+                  }
+                  title="Share on Twitter"
+                  className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-secondary/80 transition-colors"
+                >
+                  <Twitter className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() =>
+                    openShareWindow(
+                      `https://www.linkedin.com/shareArticle?mini=true&url=${encodeURIComponent(postUrl)}&title=${encodeURIComponent(post.title)}`
+                    )
+                  }
+                  title="Share on LinkedIn"
+                  className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-secondary/80 transition-colors"
+                >
+                  <Linkedin className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() =>
+                    openShareWindow(
+                      `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(postUrl)}`
+                    )
+                  }
+                  title="Share on Facebook"
+                  className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-secondary/80 transition-colors"
+                >
+                  <Facebook className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={handleCopyLink}
+                  title={copied ? "Link copied" : "Copy link"}
+                  className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-secondary/80 transition-colors"
+                >
+                  <Copy className="w-5 h-5" />
+                </button>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Related Posts */}
       {relatedPosts.length > 0 && (
         <section className="section-padding bg-card/30">
           <div className="container-custom">

@@ -4,23 +4,20 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Search, Trash2, Edit2, Plus, Download, Eye, EyeOff, Bold, Italic, Underline, Heading2, List, ListOrdered, Image as ImageIcon, Link2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { apiClient } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 interface BlogPost {
   id: string;
   title: string;
-  slug: string;
   excerpt: string | null;
   content: string | null;
   cover_image: string | null;
-  category: string | null;
-  tags: string[] | null;
-  read_time: string | null;
   is_published: boolean;
   published_at: string | null;
   created_at: string;
   updated_at: string;
+  author_name?: string;
 }
 
 const AdminPosts = () => {
@@ -53,14 +50,8 @@ const AdminPosts = () => {
     try {
       setLoading(true);
 
-      const { data: postsData, error } = await supabase
-        .from("blog_posts")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      setPosts(postsData || []);
+      const response = await apiClient.getAllBlogPosts();
+      setPosts(response.posts || []);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -202,52 +193,27 @@ const AdminPosts = () => {
     try {
       setImageUploadError("");
 
-      // Create a unique filename
-      const timestamp = new Date().getTime();
-      const cleanFilename = file.name.replace(/[^a-zA-Z0-9.-]/g, "");
-      const filename = `blog-${timestamp}-${cleanFilename}`;
+      // Fallback: Convert image to data URL (no external storage)
+      const reader = new FileReader();
+      const uploadedUrl = await new Promise<string>((resolve, reject) => {
+        reader.onload = (e) => {
+          const result = e.target?.result;
+          if (typeof result === 'string') {
+            resolve(result);
+          } else {
+            reject(new Error('Failed to read image'));}
+        };
+        reader.onerror = () => reject(new Error('Failed to read image'));
+        reader.readAsDataURL(file);
+      });
 
-      // Try to upload to Supabase Storage
-      let uploadedUrl = null;
-
-      // First, ensure the bucket path exists by attempting the upload
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("blog-images")
-        .upload(filename, file, {
-          cacheControl: "3600",
-          upsert: false,
-        });
-
-      if (!uploadError && uploadData) {
-        // Get public URL
-        const { data: urlData } = supabase.storage
-          .from("blog-images")
-          .getPublicUrl(filename);
-
-        uploadedUrl = urlData?.publicUrl;
-      } else {
-        // Fallback: Convert image to data URL
-        const reader = new FileReader();
-        await new Promise((resolve) => {
-          reader.onload = (e) => {
-            uploadedUrl = e.target?.result as string;
-            resolve(uploadedUrl);
-          };
-          reader.readAsDataURL(file);
-        });
-      }
-
-      if (uploadedUrl) {
-        setEditForm({ ...editForm, cover_image: uploadedUrl });
-        toast({
-          title: "Success",
-          description: "Image uploaded successfully",
-        });
-      } else {
-        throw new Error("Failed to upload image");
-      }
+      setEditForm({ ...editForm, cover_image: uploadedUrl });
+      toast({
+        title: "Success",
+        description: "Image loaded locally (data URL).",
+      });
     } catch (error: any) {
-      const errorMsg = error.message || "Failed to upload image. You can paste an image URL instead.";
+      const errorMsg = error.message || "Failed to process image. You can paste an image URL instead.";
       setImageUploadError(errorMsg);
       toast({
         title: "Error",
@@ -286,34 +252,29 @@ const AdminPosts = () => {
         read_time: editForm.read_time || null,
         is_published: editForm.is_published,
         published_at: editForm.is_published ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString(),
       };
 
       if (selectedPost) {
-        // Update existing post
-        const { error } = await supabase
-          .from("blog_posts")
-          .update(postData)
-          .eq("id", selectedPost.id);
-
-        if (error) throw error;
+        await apiClient.updateBlogPost(selectedPost.id, {
+          title: postData.title,
+          content: postData.content || "",
+          excerpt: postData.excerpt || "",
+          coverImage: postData.cover_image || "",
+          isPublished: postData.is_published,
+        });
 
         toast({
           title: "Success",
           description: "Post updated successfully",
         });
       } else {
-        // Create new post
-        const { error } = await supabase
-          .from("blog_posts")
-          .insert([
-            {
-              ...postData,
-              created_at: new Date().toISOString(),
-            },
-          ]);
-
-        if (error) throw error;
+        await apiClient.createBlogPost({
+          title: postData.title,
+          content: postData.content || "",
+          excerpt: postData.excerpt || "",
+          coverImage: postData.cover_image || "",
+          isPublished: postData.is_published,
+        });
 
         toast({
           title: "Success",
@@ -340,9 +301,7 @@ const AdminPosts = () => {
     }
 
     try {
-      const { error } = await supabase.from("blog_posts").delete().eq("id", postId);
-
-      if (error) throw error;
+      await apiClient.deleteBlogPost(postId);
 
       toast({
         title: "Success",
@@ -361,16 +320,13 @@ const AdminPosts = () => {
 
   const handleTogglePublish = async (post: BlogPost) => {
     try {
-      const { error } = await supabase
-        .from("blog_posts")
-        .update({
-          is_published: !post.is_published,
-          published_at: !post.is_published ? new Date().toISOString() : null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", post.id);
-
-      if (error) throw error;
+      await apiClient.updateBlogPost(post.id, {
+        title: post.title,
+        content: post.content || "",
+        excerpt: post.excerpt || "",
+        coverImage: post.cover_image || "",
+        isPublished: !post.is_published,
+      });
 
       toast({
         title: "Success",

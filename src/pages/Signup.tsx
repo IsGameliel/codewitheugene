@@ -35,7 +35,7 @@ const Signup = () => {
     const { error } = await signUp(email, password, name);
 
     if (error) {
-      if (error.message.includes("already registered")) {
+      if (error.message.toLowerCase().includes("already exists")) {
         toast.error("This email is already registered. Please sign in instead.");
       } else {
         toast.error(error.message);
